@@ -4,42 +4,63 @@ import { Server, Socket } from "socket.io";
 import http from "http";
 import "dotenv/config";
 import { songsById } from "./songs";
+import Player from "./player";
+import path from 'path';
+import fs from 'fs';
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 const port = process.env.PORT || 3000;
+const INITIAL_SCORE: number = 0;
 
 app.use("/songs", express.static("public/songs"));
 
-let currentGameId: string;
 let gameState: {
   gameId: string;
   round: number;
-  players: { id: string; name: string }[];
+  gamePlayers: Player[];
   guesses: Record<number, string>;
+  currentCorrectAnswer: string;
 } | null;
 let playersSocket: Record<string, Socket> = {};
+let players: Player[] = [];
+
+const getFileNamesInDirectory = (directoryPath: string): string[] => {
+  try {
+      // Get the names of all files in the directory
+      const fileNames = fs.readdirSync(directoryPath);
+      return fileNames;
+  } catch (error) {
+      console.error('Error reading directory:', error);
+      return [];
+  }
+}
+
+const songsDirectoryPath = './public/songs';
+let availableSongsFileNames: String [] = getFileNamesInDirectory(songsDirectoryPath);
 
 app.get("/create-game", (req: Request, res: Response) => {
-  currentGameId = Math.random().toString().substr(2, 4);
   gameState = {
-    gameId: currentGameId,
+    gameId: Math.random().toString().substr(2, 4),
     round: 0,
-    players: [],
+    gamePlayers: [],
     guesses: {},
+    currentCorrectAnswer: "none"
   };
-  res.send(currentGameId);
+  availableSongsFileNames = getFileNamesInDirectory(songsDirectoryPath);
+  resetScores();
+  res.send(gameState.gameId);
 });
 
 app.get("/join-game", (req: Request, res: Response) => {
-  const { gameId, name } = req.query;
-  if (!currentGameId || gameId !== currentGameId) {
+  const { gameId, userName } = req.query;
+  if (!gameState.gameId || gameId !== gameState.gameId) {
     res.status(400).send("Invalid game ID");
     return;
   }
   if (
-    gameState?.players.map((player) => player.name).includes(name as string)
+    gameState?.gamePlayers.map((player) => player.userName).includes(userName as string)
   ) {
     res.status(400).send("Player already joined");
     return;
@@ -48,54 +69,121 @@ app.get("/join-game", (req: Request, res: Response) => {
     res.status(400).send("Game has already started");
     return;
   }
-  if (name === "") {
+  if (userName === "") {
     res.status(400).send("Invalid name");
     return;
   }
   const userId = uuid();
-  gameState.players.push({ id: userId, name: name as string });
-  io.emit("player-joined", { name });
+  gameState.gamePlayers.push({ id: userId, userName: userName as string, score: INITIAL_SCORE });
+  io.emit("player-joined", { userName });
   res.send(userId);
 });
 
 app.get("/next-round", (req: Request, res: Response) => {
   const nextRound = gameState.round + 1;
 
-  if (nextRound > 5) {
-    res.status(400).send("All rounds have been played");
+  if (1 > availableSongsFileNames.length) {
+    res.send("All rounds have been played\n the winner is: " + getWinner().userName);
     return;
   }
 
   const song = songsById[nextRound];
+  gameState.currentCorrectAnswer = song.title;
 
   io.emit("round-started", {
     round: nextRound,
     songId: nextRound,
-    duration: song.duration,
+    duration: song.duration
   });
 
   gameState.round = nextRound;
 
-  res.send("Next round started!");
+  // Generate random index
+  const randomIndex = Math.floor(Math.random() * availableSongsFileNames.length);
+        
+  // Get the file name at the random index
+  const selectedFileName = availableSongsFileNames[randomIndex];
+  
+  // Remove the file name from the list
+  availableSongsFileNames.splice(randomIndex, 1);
+
+  const songFilePath = path.join(__dirname, '..', 'public/songs', `${selectedFileName}`);
+  // send song to the game host
+  res.sendFile(songFilePath, (err) => {
+      if (err) {
+          console.error('Error sending file:', err);
+          res.status(500).send('Internal Server Error');
+      }
+  });
 });
 
-app.get("end-game", (req: Request, res: Response) => {
+app.get("/end-game", (req: Request, res: Response) => {
+  console.log("here")
   gameState = null;
   playersSocket = {};
   io.emit("game-ended");
-  res.send("Game ended!");
+  res.send("Game ended! winner is: " + getWinner().userName);
 });
+
+const getWinner = (): Player => {
+  // Find player with the highest score
+  let winner: Player | null = null;
+  let highestScore = -1;
+  
+  gameState.gamePlayers.forEach(player => {
+    if (player.score > highestScore) {
+      highestScore = player.score;
+      winner = player;
+    }
+  });
+
+  console.log(winner)
+  return winner;
+}
 
 io.on("connection", (socket) => {
   console.log("A user connected");
-  socket.on("join-game", (playerId: string) => {
+  socket.on("join-game", (playerId: string, userName: string) => {
     playersSocket[playerId] = socket;
+    const player: Player = { id: socket.id, userName: userName, score: INITIAL_SCORE };
+    // players.push(player);
+    gameState.gamePlayers.push(player);
+    io.emit('playerJoined', player);
     socket.on("disconnect", () => {
       console.log("User disconnected");
       delete playersSocket[playerId];
+      // players = players.filter(player => player.id !== socket.id);
+      gameState.gamePlayers = gameState.gamePlayers.filter(player => player.id !== socket.id);
+    });
+
+    // Handle player answering a question
+    socket.on('answer', (answer: string) => {
+      if (answer.toLowerCase() === gameState.currentCorrectAnswer.toLowerCase()) {
+        // const playerIndex = players.findIndex(player => player.id === socket.id);
+        const playerIndex = gameState.gamePlayers.findIndex(player => player.id === socket.id);
+        if (playerIndex !== -1) {
+          gameState.gamePlayers[playerIndex].score++;
+          // players[playerIndex].score++;
+          io.emit('updateScore', players);
+        }
+      }
     });
   });
 });
+
+const resetScores = () => {
+  // Reset scores for all players
+  // players.forEach(player => {
+  //   player.score = 0;
+  // });
+  gameState.gamePlayers.forEach(player => {
+    player.score = 0;
+  });
+
+  // Emit updated scores to all clients
+  // io.emit('updateScore', players);
+  io.emit('updateScore', gameState.gamePlayers);
+}
 
 server.listen(port, () => {
   console.log(`Server is listening on *:${port}`);
