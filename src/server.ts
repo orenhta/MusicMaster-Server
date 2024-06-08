@@ -7,6 +7,7 @@ import { songsById } from "./songs";
 import Player from "./player";
 import path from 'path';
 import fs from 'fs';
+import { getFileNamesInDirectory } from "./utils/filesOperations";
 
 const app = express();
 const server = http.createServer(app);
@@ -14,38 +15,24 @@ const io = new Server(server);
 const port = process.env.PORT || 3000;
 const INITIAL_SCORE: number = 0;
 
-app.use("/songs", express.static("public/songs"));
-
 let gameState: {
   gameId: string;
   round: number;
   gamePlayers: Player[];
-  guesses: Record<number, string>;
   currentCorrectAnswer: string;
 } | null;
 let playersSocket: Record<string, Socket> = {};
-let players: Player[] = [];
-
-const getFileNamesInDirectory = (directoryPath: string): string[] => {
-  try {
-      // Get the names of all files in the directory
-      const fileNames = fs.readdirSync(directoryPath);
-      return fileNames;
-  } catch (error) {
-      console.error('Error reading directory:', error);
-      return [];
-  }
-}
 
 const songsDirectoryPath = './public/songs';
-let availableSongsFileNames: String [] = getFileNamesInDirectory(songsDirectoryPath);
+let availableSongsFileNames: string [] = getFileNamesInDirectory(songsDirectoryPath);
+
+app.use("/songs", express.static("public/songs"));
 
 app.get("/create-game", (req: Request, res: Response) => {
   gameState = {
     gameId: Math.random().toString().substr(2, 4),
     round: 0,
     gamePlayers: [],
-    guesses: {},
     currentCorrectAnswer: "none"
   };
   availableSongsFileNames = getFileNamesInDirectory(songsDirectoryPath);
@@ -99,15 +86,15 @@ app.get("/next-round", (req: Request, res: Response) => {
   gameState.round = nextRound;
 
   // Generate random index
-  const randomIndex = Math.floor(Math.random() * availableSongsFileNames.length);
+  const randomIndex: number = Math.floor(Math.random() * availableSongsFileNames.length);
         
   // Get the file name at the random index
-  const selectedFileName = availableSongsFileNames[randomIndex];
+  const selectedFileName: string = availableSongsFileNames[randomIndex];
   
   // Remove the file name from the list
   availableSongsFileNames.splice(randomIndex, 1);
 
-  const songFilePath = path.join(__dirname, '..', 'public/songs', `${selectedFileName}`);
+  const songFilePath: string = path.join(__dirname, '..', 'public/songs', `${selectedFileName}`);
   // send song to the game host
   res.sendFile(songFilePath, (err) => {
       if (err) {
@@ -118,7 +105,6 @@ app.get("/next-round", (req: Request, res: Response) => {
 });
 
 app.get("/end-game", (req: Request, res: Response) => {
-  console.log("here")
   gameState = null;
   playersSocket = {};
   io.emit("game-ended");
@@ -127,7 +113,7 @@ app.get("/end-game", (req: Request, res: Response) => {
 
 const getWinner = (): Player => {
   // Find player with the highest score
-  let winner: Player | null = null;
+  let winner: Player;
   let highestScore = -1;
   
   gameState.gamePlayers.forEach(player => {
@@ -152,19 +138,16 @@ io.on("connection", (socket) => {
     socket.on("disconnect", () => {
       console.log("User disconnected");
       delete playersSocket[playerId];
-      // players = players.filter(player => player.id !== socket.id);
       gameState.gamePlayers = gameState.gamePlayers.filter(player => player.id !== socket.id);
     });
 
     // Handle player answering a question
     socket.on('answer', (answer: string) => {
       if (answer.toLowerCase() === gameState.currentCorrectAnswer.toLowerCase()) {
-        // const playerIndex = players.findIndex(player => player.id === socket.id);
         const playerIndex = gameState.gamePlayers.findIndex(player => player.id === socket.id);
         if (playerIndex !== -1) {
           gameState.gamePlayers[playerIndex].score++;
-          // players[playerIndex].score++;
-          io.emit('updateScore', players);
+          io.emit('updateScore', gameState.gamePlayers);
         }
       }
     });
@@ -172,16 +155,10 @@ io.on("connection", (socket) => {
 });
 
 const resetScores = () => {
-  // Reset scores for all players
-  // players.forEach(player => {
-  //   player.score = 0;
-  // });
   gameState.gamePlayers.forEach(player => {
     player.score = 0;
   });
 
-  // Emit updated scores to all clients
-  // io.emit('updateScore', players);
   io.emit('updateScore', gameState.gamePlayers);
 }
 
