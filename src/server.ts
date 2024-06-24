@@ -169,23 +169,27 @@ io.on("connection", (socket) => {
       if (!gameState.currentGuessingPlayer) {
         gameState.currentGuessingPlayer = socket.id;
         io.emit("buzzerGranted", socket.id);
-      }
-    });
 
-    socket.on("answer", (answer: string) => {
-      if (gameState.currentGuessingPlayer === socket.id) {
-        if (
-          answer.toLowerCase() === gameState.currentCorrectAnswer.toLowerCase()
-        ) {
+        socket.on("answer", (answer: string) => {
           const playerIndex = gameState.gamePlayers.findIndex(
             (player) => player.id === socket.id
           );
-          if (playerIndex !== -1) {
-            gameState.gamePlayers[playerIndex].score++;
+
+          const isCorrectAnswer =
+            answer.toLowerCase() ===
+            gameState.currentCorrectAnswer.toLowerCase();
+
+          if (isCorrectAnswer) {
+            gameState.gamePlayers[playerIndex].score += 10;
+            io.emit("correctAnswer", socket.id, answer);
             io.emit("updateScore", gameState.gamePlayers);
+          } else {
+            gameState.gamePlayers[playerIndex].score -= 2;
+            io.emit("wrongAnswer", socket.id);
           }
-        }
-        gameState.currentGuessingPlayer = null;
+          io.emit("updateScore", gameState.gamePlayers);
+          gameState.currentGuessingPlayer = null;
+        });
       }
     });
   });
