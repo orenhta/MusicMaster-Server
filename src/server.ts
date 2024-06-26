@@ -7,10 +7,13 @@ import { songsById } from "./songs";
 import Player from "./player";
 import path from "path";
 import { getFileNamesInDirectory } from "./utils/filesOperations";
+import cors from "cors";
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+const io = new Server(server, {cors: {
+  methods: ['GET', 'POST'],
+}});
 const port = process.env.PORT || 3000;
 const INITIAL_SCORE: number = 0;
 
@@ -28,7 +31,7 @@ let availableSongsFileNames: string[] =
   getFileNamesInDirectory(songsDirectoryPath);
 
 app.use("/songs", express.static("public/songs"));
-
+app.use(cors());
 app.get("/create-game", (req: Request, res: Response) => {
   gameState = {
     gameId: Math.random().toString().substr(2, 4),
@@ -86,7 +89,7 @@ app.get("/next-round", (req: Request, res: Response) => {
 
   const song = songsById[nextRound];
   gameState.currentCorrectAnswer = song.title;
-
+  console.log('round started')
   io.emit("round-started", {
     round: nextRound,
     songId: nextRound,
@@ -121,6 +124,11 @@ app.get("/next-round", (req: Request, res: Response) => {
   });
 });
 
+app.post("/end-round", (req: Request, res: Response) => {
+  gameState.gamePlayers.map(player => ({...player, score : player.score - 1}))
+  res.send(gameState.currentCorrectAnswer);
+});
+
 app.get("/end-game", (req: Request, res: Response) => {
   gameState = null;
   playersSocket = {};
@@ -130,15 +138,16 @@ app.get("/end-game", (req: Request, res: Response) => {
 
 const getWinner = (): Player => {
   // Find player with the highest score
-  let winner: Player;
+  let winner: Player = {id : '1', score : 0, userName : 'default'};
   let highestScore = -1;
-
-  gameState.gamePlayers.forEach((player) => {
-    if (player.score > highestScore) {
-      highestScore = player.score;
-      winner = player;
-    }
-  });
+  if (gameState && gameState.gamePlayers && gameState.gamePlayers.length){
+    gameState.gamePlayers.forEach((player) => {
+      if (player.score > highestScore) {
+        highestScore = player.score;
+        winner = player;
+      }
+    });
+  }
 
   console.log(winner);
   return winner;
