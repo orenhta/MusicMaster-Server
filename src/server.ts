@@ -130,24 +130,24 @@ app.post("/end-round", (req: Request, res: Response) => {
 });
 
 app.get("/end-game", (req: Request, res: Response) => {
-  gameState = null;
   playersSocket = {};
+  const winnerUser = getWinner().userName;
+  gameState = null;
   io.emit("game-ended");
-  res.send("Game ended! winner is: " + getWinner().userName);
+  res.send("Game ended! winner is: " + winnerUser);
 });
 
 const getWinner = (): Player => {
   // Find player with the highest score
-  let winner: Player = {id : '1', score : 0, userName : 'default'};
+  let winner: Player;
   let highestScore = -1;
-  if (gameState && gameState.gamePlayers && gameState.gamePlayers.length){
-    gameState.gamePlayers.forEach((player) => {
-      if (player.score > highestScore) {
-        highestScore = player.score;
-        winner = player;
-      }
-    });
-  }
+
+  gameState.gamePlayers.forEach((player) => {
+    if (player.score > highestScore) {
+      highestScore = player.score;
+      winner = player;
+    }
+  });
 
   console.log(winner);
   return winner;
@@ -155,11 +155,11 @@ const getWinner = (): Player => {
 
 io.on("connection", (socket) => {
   console.log("A user connected");
-  socket.on("join-game", (playerId: string, userName: string) => {
-    playersSocket[playerId] = socket;
+  socket.on("join-game", (user : {playerId : string, userName : string}) => {
+    playersSocket[user.playerId] = socket;
     const player: Player = {
       id: socket.id,
-      userName: userName,
+      userName: user.userName,
       score: INITIAL_SCORE,
     };
 
@@ -168,7 +168,7 @@ io.on("connection", (socket) => {
 
     socket.on("disconnect", () => {
       console.log("User disconnected");
-      delete playersSocket[playerId];
+      delete playersSocket[user.playerId];
       gameState.gamePlayers = gameState.gamePlayers.filter(
         (player) => player.id !== socket.id
       );
@@ -190,15 +190,17 @@ io.on("connection", (socket) => {
 
           if (isCorrectAnswer) {
             gameState.gamePlayers[playerIndex].score += 10;
-            io.emit("correctAnswer", socket.id, answer);
+            console.log(answer)
+            io.emit("correctAnswer", answer);
             io.emit("updateScore", gameState.gamePlayers);
           } else {
             gameState.gamePlayers[playerIndex].score -= 2;
-            io.emit("wrongAnswer", socket.id);
+            io.emit("wrongAnswer");
           }
           io.emit("updateScore", gameState.gamePlayers);
           gameState.currentGuessingPlayer = null;
         });
+        socket.off("answer", ()=>{});
       }
     });
   });
