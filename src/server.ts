@@ -11,9 +11,11 @@ import cors from "cors";
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, {cors: {
-  methods: ['GET', 'POST'],
-}});
+const io = new Server(server, {
+  cors: {
+    methods: ["GET", "POST"],
+  },
+});
 const port = process.env.PORT || 3000;
 const INITIAL_SCORE: number = 0;
 
@@ -89,7 +91,7 @@ app.get("/next-round", (req: Request, res: Response) => {
 
   const song = songsById[nextRound];
   gameState.currentCorrectAnswer = song.title;
-  console.log('round started')
+  console.log("round started");
   io.emit("round-started", {
     round: nextRound,
     songId: nextRound,
@@ -125,7 +127,10 @@ app.get("/next-round", (req: Request, res: Response) => {
 });
 
 app.post("/end-round", (req: Request, res: Response) => {
-  gameState.gamePlayers.map(player => ({...player, score : player.score - 1}))
+  gameState.gamePlayers.map((player) => ({
+    ...player,
+    score: player.score - 1,
+  }));
   res.send(gameState.currentCorrectAnswer);
 });
 
@@ -155,7 +160,7 @@ const getWinner = (): Player => {
 
 io.on("connection", (socket) => {
   console.log("A user connected");
-  socket.on("join-game", (user : {playerId : string, userName : string}) => {
+  socket.on("join-game", (user: { playerId: string; userName: string }) => {
     playersSocket[user.playerId] = socket;
     const player: Player = {
       id: socket.id,
@@ -169,7 +174,7 @@ io.on("connection", (socket) => {
     socket.on("disconnect", () => {
       console.log("User disconnected");
       delete playersSocket[user.playerId];
-      gameState.gamePlayers = gameState.gamePlayers.filter(
+      gameState.gamePlayers = (gameState?.gamePlayers ?? []).filter(
         (player) => player.id !== socket.id
       );
     });
@@ -190,7 +195,7 @@ io.on("connection", (socket) => {
 
           if (isCorrectAnswer) {
             gameState.gamePlayers[playerIndex].score += 10;
-            console.log(answer)
+            console.log(answer);
             io.emit("correctAnswer", answer);
             io.emit("updateScore", gameState.gamePlayers);
           } else {
@@ -200,7 +205,7 @@ io.on("connection", (socket) => {
           io.emit("updateScore", gameState.gamePlayers);
           gameState.currentGuessingPlayer = null;
         });
-        socket.off("answer", ()=>{});
+        socket.off("answer", () => {});
       }
     });
   });
